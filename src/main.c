@@ -1,52 +1,84 @@
 #include <ncurses.h>
 #include <locale.h>
-#include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "audio/player.h"
+#include "audio/playlist.h"
+#include "ui/layout.h"
+#include "ui/draw.h"
+#include "ui/colors.h"
+#include "input/keybinds.h"
+#include "state/state.h"
+#include "library/scanner.h"
 
-static void draw_progress(WINDOW *win, int row, int col, int width,
-						  double pos, double dur)
+/* ------------------------------------------------------------------ */
+/*  Config reader                                                       */
+/* ------------------------------------------------------------------ */
+
+static void read_config(char *music_dir, int size)
 {
-	if (dur <= 0.0) {
-		mvwprintw(win, row, col, "%-*s", width, " --:-- / --:--");
+	const char *home = getenv("HOME");
+	if (home)
+		snprintf(music_dir, size, "%s/Music", home);
+	else
+		snprintf(music_dir, size, ".");
+
+	char path[512];
+	if (home)
+		snprintf(path, sizeof(path), "%s/.config/pamp/config.ini", home);
+	else
 		return;
+
+	FILE *f = fopen(path, "r");
+	if (!f) f = fopen("config.ini", "r");
+	if (!f) return;
+
+	char line[512];
+	while (fgets(line, sizeof(line), f)) {
+		char *nl = strchr(line, '\n');
+		if (nl) *nl = '\0';
+		if (line[0] == ';' || line[0] == '#' || line[0] == '[') continue;
+
+		char val[512];
+		if (sscanf(line, " music_dir = %511[^\n;]", val) == 1) {
+			/* trim trailing space */
+			int len = (int)strlen(val);
+			while (len > 0 && val[len - 1] == ' ') val[--len] = '\0';
+
+			if (val[0] == '~' && home)
+				snprintf(music_dir, size, "%s%s", home, val + 1);
+			else
+				strncpy(music_dir, val, size - 1);
+		}
 	}
-
-	double ratio  = pos / dur;
-	int    filled = (int)(ratio * width);
-	if (filled > width) filled = width;
-
-	int pm = (int)pos / 60, ps = (int)pos % 60;
-	int dm = (int)dur / 60, ds = (int)dur % 60;
-
-	wmove(win, row, col);
-	for (int i = 0; i < width; i++) {
-		if      (i < filled)  waddstr(win, "█");
-		else if (i == filled) waddstr(win, "▓");
-		else                  waddstr(win, "░");
-	}
-
-	mvwprintw(win, row + 1, col,
-			  "%02d:%02d / %02d:%02d", pm, ps, dm, ds);
+	fclose(f);
 }
+
+/* ------------------------------------------------------------------ */
+/*  Main                                                                */
+/* ------------------------------------------------------------------ */
 
 int main(int argc, char *argv[])
 {
-	if (argc < 2) {
-		fprintf(stderr, "usage: pamp <audio-file>\n");
-		return 1;
-	}
-
-	const char *filepath = argv[1];
-
-	/* Init player BEFORE ncurses so error output is visible in terminal */
+	/* player must be created before initscr() so errors are visible */
 	Player *player = player_create();
-	if (!player) {
-		return 1;
-	}
+	if (!player) return 1;
 
+	AppState state;
+	state_init(&state);
+
+	/* determine music source */
+	char music_dir[1024];
+	int  single_file = (argc >= 2);
+
+	if (single_file)
+		snprintf(music_dir, sizeof(music_dir), "%s", argv[1]);
+	else
+		read_config(music_dir, sizeof(music_dir));
+
+	/* ncurses setup */
 	setlocale(LC_ALL, "");
 	initscr();
 	cbreak();
@@ -55,73 +87,82 @@ int main(int argc, char *argv[])
 	curs_set(0);
 	timeout(50);
 
-	if (has_colors()) {
-		start_color();
-		use_default_colors();
-		init_pair(1, COLOR_GREEN,  -1);
-		init_pair(2, COLOR_CYAN,   -1);
-		init_pair(3, COLOR_YELLOW, -1);
-		init_pair(4, COLOR_WHITE,  -1);
+	init_colors();
+
+	Layout layout;
+	layout_create(&layout);
+	getmaxyx(stdscr, state.rows, state.cols);
+
+	/* load tracks */
+	if (single_file) {
+		Track *t = &state.tracks[0];
+		snprintf(t->path, sizeof(t->path), "%s", argv[1]);
+		/* strip extension for display title */
+		const char *base = strrchr(argv[1], '/');
+		base = base ? base + 1 : argv[1];
+		strncpy(t->title, base, sizeof(t->title) - 1);
+		char *dot = strrchr(t->title, '.');
+		if (dot) *dot = '\0';
+		state.track_count = 1;
+		snprintf(state.status_msg, sizeof(state.status_msg),
+				 "1 track — press Enter or Space to play");
+	} else {
+		/* show scanning message before blocking scan */
+		snprintf(state.status_msg, sizeof(state.status_msg),
+				 "Scanning library...");
+		draw_all(&layout, &state);
+		doupdate();
+
+		int found = scan_library(&state, music_dir);
+
+		if (found > 0)
+			snprintf(state.status_msg, sizeof(state.status_msg),
+					 "%d tracks loaded", found);
+		else
+				snprintf(state.status_msg, sizeof(state.status_msg),
+						 "No tracks found — check music_dir in config.ini");
 	}
 
-	player_load(player, filepath);
+	/* main loop */
+	while (state.is_running) {
 
-	int running = 1;
-	while (running) {
-
+		/* drain mpv events */
 		int ended = player_poll(player);
-		if (ended) {
-			running = 0;
+		if (ended)
+			playlist_next(&state, player);
+
+		/* sync live position/volume from mpv */
+		if (state.playback_state == PLAYER_PLAYING ||
+			state.playback_state == PLAYER_PAUSED)
+		{
+			state.position = player_get_position(player);
+			state.duration = player_get_duration(player);
+			state.volume   = player_get_volume(player);
+
+			if (player_is_paused(player))
+				state.playback_state = PLAYER_PAUSED;
+			else if (state.playback_state == PLAYER_PAUSED)
+				state.playback_state = PLAYER_PLAYING;
 		}
 
-		double pos    = player_get_position(player);
-		double dur    = player_get_duration(player);
-		double vol    = player_get_volume(player);
-		int    paused = player_is_paused(player);
+		/* render */
+		draw_all(&layout, &state);
+		doupdate();
 
-		erase();
-		int rows, cols;
-		getmaxyx(stdscr, rows, cols);
-		(void)rows;
-
-		attron(COLOR_PAIR(2) | A_BOLD);
-		mvprintw(1, 2, "PAMP — Phase 1 audio test");
-		attroff(COLOR_PAIR(2) | A_BOLD);
-
-		attron(COLOR_PAIR(4));
-		mvprintw(2, 2, "File: %s", filepath);
-		attroff(COLOR_PAIR(4));
-
-		attron(COLOR_PAIR(3));
-		mvprintw(4, 2, "Status: %s", paused ? "PAUSED " : "PLAYING");
-		mvprintw(4, 22, "Volume: %.0f%%", vol);
-		attroff(COLOR_PAIR(3));
-
-		int bar_w = cols - 4;
-		if (bar_w < 4) bar_w = 4;
-		attron(COLOR_PAIR(1));
-		draw_progress(stdscr, 6, 2, bar_w, pos, dur);
-		attroff(COLOR_PAIR(1));
-
-		attron(A_DIM);
-		mvprintw(9, 2, "[space] pause   [</>] seek   [[]]] volume   [q] quit");
-		attroff(A_DIM);
-
-		refresh();
-
+		/* input */
 		int ch = getch();
-		switch (ch) {
-			case ' ':       player_toggle_pause(player);        break;
-			case KEY_RIGHT: player_seek(player, +5.0);          break;
-			case KEY_LEFT:  player_seek(player, -5.0);          break;
-			case ']':       player_set_volume(player, vol+5.0); break;
-			case '[':       player_set_volume(player, vol-5.0); break;
-			case 'q':
-			case 'Q':       running = 0;                        break;
-			default:        break;
+
+		if (ch == KEY_RESIZE) {
+			getmaxyx(stdscr, state.rows, state.cols);
+			clear();
+			layout_rebuild(&layout);
+			continue;
 		}
+
+		handle_input(&state, player, ch);
 	}
 
+	layout_destroy(&layout);
 	player_destroy(player);
 	endwin();
 	return 0;
