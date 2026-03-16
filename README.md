@@ -21,19 +21,19 @@ Browse your library, control playback, and manage your queue entirely through th
 ┌─────────────────────────────────────────────────────────────────┐
 │ PAMP  ~/Music  [shuffle: off]  [repeat: off]       v0.1.0       │
 ├──────────────────────┬──────────────────────────────────────────┤
-│  > 2002              │  2002                                     │
+│  > 2002              │  2002                                    │
 │    Crave You         │  Anne-Marie  ·  Feelgood Mode  ·  2018   │
 │    Friends           │                                          │
-│    Alarm             │  ████████████░░░░░░░░░░  3:12 / 4:56    │
+│    Alarm             │  ████████████░░░░░░░░░░  3:12 / 4:56     │
 │    Rewrite The Stars │                                          │
-│    Rockabye          │  ◀◀   ▐▐   ▶▶    ↺    ⇄   vol: ████░    │
+│    Rockabye          │  ◀◀   ▐▐   ▶▶    ↺    ⇄  vol: ███░   │
 │    Perfect           │                                          │
 │    Shape of You      │  Up next:                                │
 │    Blinding Lights   │  1. Crave You — Flight Facilities        │
 │    Stay              │  2. Friends — Anne-Marie                 │
 │                      │  3. Alarm — Anne-Marie                   │
 ├──────────────────────┴──────────────────────────────────────────┤
-│ [space] play  [n/N] next/prev  [/] search  [?] help  [q] quit  │
+│ [space] play  [n/N] next/prev  [/] search  [?] help  [q] quit   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -297,7 +297,7 @@ With PipeWire, PAMP negotiates the native sample rate and bit depth of your file
 
 - [x] Phase 1 — libmpv audio backend (play / pause / seek / volume)
 - [x] Phase 2 — ncurses TUI shell with full layout
-- [x] Phase 3 — UI and audio connected, live progress bar
+- [ ] Phase 3 — UI and audio connected, live progress bar
 - [ ] Phase 4 — Library scanner + TagLib metadata
 - [ ] Phase 5 — Shuffle, repeat, search, mouse support
 - [ ] Phase 6 — Config file, persistent queue, themes
