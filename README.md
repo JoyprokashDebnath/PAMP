@@ -2,7 +2,12 @@
 
 > High-resolution audio. Pure terminal. Zero compromise.
 
-![Preview](https://github.com/JoyprokashDebnath/PAMP/screenshots/475.png)
+## Screenshots
+
+<p align="center">
+  <img src="./screenshots/475.png" width="45%" />
+  <img src="./screenshots/478.png" width="45%" />
+</p>
 
 ---
 
@@ -298,10 +303,10 @@ With PipeWire, PAMP negotiates the native sample rate and bit depth of your file
 
 - [x] Phase 1 — libmpv audio backend (play / pause / seek / volume)
 - [x] Phase 2 — ncurses TUI shell with full layout
-- [ ] Phase 3 — UI and audio connected, live progress bar
-- [ ] Phase 4 — Library scanner + TagLib metadata
-- [ ] Phase 5 — Shuffle, repeat, search, mouse support
-- [ ] Phase 6 — Config file, persistent queue, themes
+- [x] Phase 3 — UI and audio connected, live progress bar
+- [x] Phase 4 — Library scanner + TagLib metadata
+- [x] Phase 5 — Shuffle, repeat, search, mouse support
+- [x] Phase 6 — Config file, persistent queue, themes
 - [ ] Phase 7 — Equalizer, ReplayGain, gapless playback
 - [ ] Phase 8 — Lyrics display
 
