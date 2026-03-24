@@ -2,6 +2,7 @@
 
 > High-resolution audio. Pure terminal. Zero compromise.
 
+![Preview](https://raw.githubusercontent.com/joyprokashdebnath/PAMP/screenshot/475.png)
 
 ---
 
