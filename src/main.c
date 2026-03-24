@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "audio/player.h"
 #include "audio/playlist.h"
@@ -43,10 +44,8 @@ static void read_config(char *music_dir, int size)
 
 		char val[512];
 		if (sscanf(line, " music_dir = %511[^\n;]", val) == 1) {
-			/* trim trailing space */
 			int len = (int)strlen(val);
 			while (len > 0 && val[len - 1] == ' ') val[--len] = '\0';
-
 			if (val[0] == '~' && home)
 				snprintf(music_dir, size, "%s%s", home, val + 1);
 			else
@@ -62,23 +61,15 @@ static void read_config(char *music_dir, int size)
 
 int main(int argc, char *argv[])
 {
-	/* player must be created before initscr() so errors are visible */
+	/* 1. player before initscr() so errors print to terminal */
 	Player *player = player_create();
 	if (!player) return 1;
 
+	/* 2. app state */
 	AppState state;
 	state_init(&state);
 
-	/* determine music source */
-	char music_dir[1024];
-	int  single_file = (argc >= 2);
-
-	if (single_file)
-		snprintf(music_dir, sizeof(music_dir), "%s", argv[1]);
-	else
-		read_config(music_dir, sizeof(music_dir));
-
-	/* ncurses setup */
+	/* 3. ncurses */
 	setlocale(LC_ALL, "");
 	initscr();
 	cbreak();
@@ -86,28 +77,43 @@ int main(int argc, char *argv[])
 	keypad(stdscr, TRUE);
 	curs_set(0);
 	timeout(50);
-
 	init_colors();
 
 	Layout layout;
 	layout_create(&layout);
 	getmaxyx(stdscr, state.rows, state.cols);
 
-	/* load tracks */
-	if (single_file) {
-		Track *t = &state.tracks[0];
-		snprintf(t->path, sizeof(t->path), "%s", argv[1]);
-		/* strip extension for display title */
-		const char *base = strrchr(argv[1], '/');
-		base = base ? base + 1 : argv[1];
-		strncpy(t->title, base, sizeof(t->title) - 1);
-		char *dot = strrchr(t->title, '.');
-		if (dot) *dot = '\0';
-		state.track_count = 1;
+	/* 4. load tracks — NOW state is declared and ncurses is ready */
+	if (argc >= 2) {
+		/* arguments provided — files and/or directories */
+		for (int i = 1; i < argc; i++) {
+			struct stat st;
+			if (stat(argv[i], &st) != 0) continue;
+
+			if (S_ISDIR(st.st_mode)) {
+				/* directory — scan recursively */
+				scan_library(&state, argv[i]);
+			} else {
+				/* single file — add directly */
+				if (state.track_count >= MAX_TRACKS) break;
+				Track *t = &state.tracks[state.track_count];
+				snprintf(t->path, sizeof(t->path), "%s", argv[i]);
+				const char *base = strrchr(argv[i], '/');
+				base = base ? base + 1 : argv[i];
+				strncpy(t->title, base, sizeof(t->title) - 1);
+				char *dot = strrchr(t->title, '.');
+				if (dot) *dot = '\0';
+				state.track_count++;
+			}
+		}
 		snprintf(state.status_msg, sizeof(state.status_msg),
-				 "1 track — press Enter or Space to play");
+				 "%d track(s) loaded — press Enter to play",
+				 state.track_count);
 	} else {
-		/* show scanning message before blocking scan */
+		/* no arguments — read music_dir from config */
+		char music_dir[1024];
+		read_config(music_dir, sizeof(music_dir));
+
 		snprintf(state.status_msg, sizeof(state.status_msg),
 				 "Scanning library...");
 		draw_all(&layout, &state);
@@ -118,20 +124,18 @@ int main(int argc, char *argv[])
 		if (found > 0)
 			snprintf(state.status_msg, sizeof(state.status_msg),
 					 "%d tracks loaded", found);
-		else
+			else
 				snprintf(state.status_msg, sizeof(state.status_msg),
 						 "No tracks found — check music_dir in config.ini");
 	}
 
-	/* main loop */
+	/* 5. main loop */
 	while (state.is_running) {
 
-		/* drain mpv events */
 		int ended = player_poll(player);
 		if (ended)
 			playlist_next(&state, player);
 
-		/* sync live position/volume from mpv */
 		if (state.playback_state == PLAYER_PLAYING ||
 			state.playback_state == PLAYER_PAUSED)
 		{
@@ -145,11 +149,9 @@ int main(int argc, char *argv[])
 				state.playback_state = PLAYER_PLAYING;
 		}
 
-		/* render */
 		draw_all(&layout, &state);
 		doupdate();
 
-		/* input */
 		int ch = getch();
 
 		if (ch == KEY_RESIZE) {
@@ -162,6 +164,7 @@ int main(int argc, char *argv[])
 		handle_input(&state, player, ch);
 	}
 
+	/* 6. cleanup */
 	layout_destroy(&layout);
 	player_destroy(player);
 	endwin();
