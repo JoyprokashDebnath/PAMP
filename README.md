@@ -5,7 +5,7 @@
 ## Screenshots
 
 <p align="center">
-  <img src="./screenshots/475.png" width="45%" />
+  <img src="./screenshots/474.png" width="45%" />
   <img src="./screenshots/478.png" width="45%" />
 </p>
 
